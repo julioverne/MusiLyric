@@ -15,14 +15,18 @@ extern const char *__progname;
 @property(readonly, nonatomic) NSString *albumArtist;
 @property(readonly, nonatomic) NSString *artist;
 @property(readonly, nonatomic) NSString *album;
-@property(readonly, nonatomic) NSString *artworkMIMEType;
-@property(readonly, nonatomic) NSData *artworkImageData;
 
 @property (nonatomic,retain) id LyricReceived;
 
 - (double)durationInSeconds;
-- (void)setupPlaybackInfo;
 @end
+
+static BOOL showLiric = NO;
+static BOOL isIOS10 = NO;
+static UIView* coverTapView;
+static UITextView *liricTextField;
+
+
 
 NSString* encodeBase64WithData(NSData* theData)
 {
@@ -128,7 +132,9 @@ NSString* getLyricNow(MPAVItem* item, NSDictionary* metadata)
 				}
 			}
 			if(retLyric) {
-				[retLyric writeToFile:pathTmpMusic atomically:YES encoding:NSStringEncodingConversionAllowLossy error:nil];
+				if(retLyric.length > 0) {
+					[retLyric writeToFile:pathTmpMusic atomically:YES encoding:NSStringEncodingConversionAllowLossy error:nil];
+				}
 				return retLyric;
 			}			
 	} @catch (NSException * e) {
@@ -141,15 +147,13 @@ NSString* getLyricNow(MPAVItem* item, NSDictionary* metadata)
 @implementation MLTapGestureRecognizer
 @end
 
-static BOOL showLiric = NO;
-static UIView* coverTapView;
+
 
 static void removeLyricView(UIView* coverTap)
 {
 	@try {
 		if(UIView* oldRem = [[coverTap superview] viewWithTag:4564]) {
-			[oldRem removeFromSuperview];
-			coverTap.alpha = 1.0f;	
+			[oldRem removeFromSuperview];	
 		}
 	} @catch (NSException * e) {
 	}
@@ -161,23 +165,21 @@ static void toggleLiricView(id target, SEL targetCallBack, UIView* coverTap, BOO
 	if(!coverTap) {
 		return;
 	}
-	//BOOL showLiric = NO;
 	coverTapView = coverTap;
 	if(toggled) {
-		coverTap.alpha = coverTap.alpha>0.5?0.3f:1.0f;
-		showLiric = coverTap.alpha<0.5?NO:YES;
+		showLiric = [[coverTap superview] viewWithTag:4564]!=nil?YES:NO;
 	}	
 	removeLyricView(coverTap);
 	if(showLiric) {
 		return;
 	}
 	[coverTap setUserInteractionEnabled:YES];
-	UITextView *liricTextField = [[UITextView alloc] initWithFrame:coverTap.frame];
+	liricTextField = [[UITextView alloc] initWithFrame:coverTap.frame];
 	MLTapGestureRecognizer *singleFingerTap = [[MLTapGestureRecognizer alloc] initWithTarget:target action:targetCallBack];
 	[liricTextField addGestureRecognizer:singleFingerTap];
 	MLTapGestureRecognizer *singleFingerTapCover = [[MLTapGestureRecognizer alloc] initWithTarget:target action:targetCallBack];
 	[coverTap addGestureRecognizer:singleFingerTapCover];
-	liricTextField.backgroundColor = [UIColor clearColor];
+	liricTextField.backgroundColor = [UIColor colorWithRed:0.00 green:0.00 blue:0.00 alpha:0.5];
 	liricTextField.textColor = [UIColor whiteColor];
 	liricTextField.editable = NO;
 	liricTextField.font = [UIFont fontWithName:@".SFUIText-Regular" size:14];
@@ -185,33 +187,31 @@ static void toggleLiricView(id target, SEL targetCallBack, UIView* coverTap, BOO
 	liricTextField.text = @"Loading...";
 	[liricTextField setScrollEnabled:YES];
 	[liricTextField setUserInteractionEnabled:YES];
-	liricTextField.tag = 4564;
+	liricTextField.tag = 4564;	
 	[[coverTap superview] addSubview:liricTextField];
 	
 	liricTextField.hidden = showLiric;
 	
-	coverTap.alpha = 0.3f;
 	if(YES) {
 		dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
 			usleep(1000000);
 			if(YES) {
 				MRMediaRemoteGetNowPlayingInfo(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^(CFDictionaryRef result) {
-					if(id retLyric = getLyricNow(nil, @{
+					id retLyric = getLyricNow(nil, @{
 						@"artist": [(__bridge NSDictionary *)result objectForKey:(__bridge NSString *)kMRMediaRemoteNowPlayingInfoArtist]?:[NSString string],
 						@"albumArtist": [(__bridge NSDictionary *)result objectForKey:(__bridge NSString *)kMRMediaRemoteNowPlayingInfoArtist]?:[NSString string],
 						@"album": [(__bridge NSDictionary *)result objectForKey:(__bridge NSString *)kMRMediaRemoteNowPlayingInfoAlbum]?:[NSString string],
 						@"mainTitle": [(__bridge NSDictionary *)result objectForKey:(__bridge NSString *)kMRMediaRemoteNowPlayingInfoTitle]?:[NSString string],
 						@"durationInSeconds": [(__bridge NSDictionary *)result objectForKey:(__bridge NSString*)kMRMediaRemoteNowPlayingInfoDuration]?:@(0),
-					})) {
-						dispatch_async(dispatch_get_main_queue(), ^(){
-							@try {
-								if(UITextView* liricTextFieldGet = (UITextView*)[[coverTap superview] viewWithTag:4564]) {
-									liricTextFieldGet.text = retLyric;
-								}
-							} @catch (NSException * e) {
-							}
-						});
-					}
+					});
+					dispatch_async(dispatch_get_main_queue(), ^(){
+						@try {
+							if(UITextView* liricTextFieldGet = (UITextView*)[[coverTap superview] viewWithTag:4564]) {
+								liricTextFieldGet.text = retLyric?:@"";
+							}							
+						} @catch (NSException * e) {
+						}
+					});
 				});
 			}
 		});
@@ -242,6 +242,45 @@ static void toggleLiricView(id target, SEL targetCallBack, UIView* coverTap, BOO
 }
 %end
 %end
+
+%group MusicIOS10
+@interface MusicNowPlayingContentViewGet : UIView
+@end
+%hook MusicNowPlayingContentViewGet
+- (void)layoutSubviews
+{
+	%orig;
+	@try {
+	coverTapView = self;
+	if(coverTapView) {
+		BOOL showldAddGesture = YES;
+		for (UIGestureRecognizer *recognizer in coverTapView.gestureRecognizers) {
+			if(recognizer&&[recognizer isKindOfClass:%c(MLTapGestureRecognizer)]) {
+				showldAddGesture = NO;
+				break;
+			}
+		}
+		if(showldAddGesture) {
+			MLTapGestureRecognizer *singleFingerTapCover = [[MLTapGestureRecognizer alloc] initWithTarget:self action:@selector(coverArtViewTapped:)];
+			[coverTapView addGestureRecognizer:singleFingerTapCover];
+			[coverTapView setUserInteractionEnabled:YES];
+		}
+		if(UIView* lyricView = [[coverTapView superview] viewWithTag:4564]) {
+			lyricView.frame = coverTapView.frame;
+		}
+	}
+	} @catch (NSException * e) {
+	}
+}
+%new
+- (void)coverArtViewTapped:(UITapGestureRecognizer *)gesture
+{
+	toggleLiricView(self, @selector(coverArtViewTapped:), self, YES);
+}
+%end
+%end
+
+
 
 %group Spotify
 static UIView* SPcoverArtView = nil;
@@ -337,6 +376,46 @@ static UIView* PAcoverArtView = nil;
 %end
 %end
 
+%group SpringBoardIOS10
+@interface MPUNowPlayingArtworkView : UIView
+@end
+%hook SBDashBoardIsolatingViewController
+- (BOOL)wantsToShareTouches
+{
+	return YES;
+}
+%end
+%hook MPUNowPlayingArtworkView
+- (void)layoutSubviews
+{
+	%orig;
+	@try {
+		[self setUserInteractionEnabled:YES];
+		if(UIView* btView = [self viewWithTag:4832]) {
+			btView.frame = CGRectMake(0, 0, self.frame.size.width, self.frame.size.height);
+		} else {
+			UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
+			b.tag = 4832;
+			[self addSubview:b];
+			[b addTarget:self action:@selector(coverArtViewTapped:) forControlEvents:UIControlEventTouchDown];
+			b.frame = CGRectMake(0, 0, self.frame.size.width, self.frame.size.height);
+		}
+		if(UIView* lyricView = [[self superview] viewWithTag:4564]) {
+			[lyricView setUserInteractionEnabled:YES];
+			lyricView.frame = self.frame;
+		}
+	} @catch (NSException * e) {
+	}
+}
+%new
+- (void)coverArtViewTapped:(UITapGestureRecognizer *)gesture
+{
+	coverTapView = self;
+	toggleLiricView(self, @selector(coverArtViewTapped:), self, YES);
+}
+%end
+%end
+
 
 static void changedPB(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo)
 {
@@ -345,12 +424,17 @@ static void changedPB(CFNotificationCenterRef center, void *observer, CFStringRe
 
 static void lockScreenState(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo)
 {
+	if(isIOS10) {
+		removeLyricView(coverTapView);
+	}
 	coverTapView = nil;
 }
 
 
+
 %ctor
 {
+	isIOS10 = (kCFCoreFoundationVersionNumber >= 1348.00);
 	CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(), NULL, &changedPB, (CFStringRef)kMRMediaRemoteNowPlayingInfoDidChangeNotification, NULL, CFNotificationSuspensionBehaviorCoalesce);
 	if (strcmp(__progname, "Spotify") == 0) {
 		%init(Spotify);
@@ -358,10 +442,20 @@ static void lockScreenState(CFNotificationCenterRef center, void *observer, CFSt
 		%init(Pandora);
 	} else if (strcmp(__progname, "SpringBoard") == 0) {
 		CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, &lockScreenState, CFSTR("com.apple.springboard.lockstate"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-		dlopen("/System/Library/SpringBoardPlugins/NowPlayingArtLockScreen.lockbundle/NowPlayingArtLockScreen", 2);
-		%init(SpringBoard);
+		if(isIOS10) {
+			CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(), NULL, &changedPB, CFSTR("ML3MusicLibraryNonContentsPropertiesDidChangeNotification"), NULL, CFNotificationSuspensionBehaviorCoalesce);
+			%init(SpringBoardIOS10);
+		} else {
+			dlopen("/System/Library/SpringBoardPlugins/NowPlayingArtLockScreen.lockbundle/NowPlayingArtLockScreen", 2);
+			%init(SpringBoard);
+		}		
 	} else {
-		%init(Music);
+		if(isIOS10) {
+			CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(), NULL, &changedPB, CFSTR("MPAVItemTitlesDidChangeNotification"), NULL, CFNotificationSuspensionBehaviorCoalesce);
+			%init(MusicIOS10, MusicNowPlayingContentViewGet = objc_getClass("Music.NowPlayingContentView"));
+		} else {
+			%init(Music);
+		}
 	}
 }
 
