@@ -9,6 +9,10 @@
 #import <MediaRemote.h>
 extern const char *__progname;
 
+#undef HBLogError
+#define HBLogError(...)
+#define NSLog(...)
+
 @interface MPAVItem : NSObject
 @property(readonly, nonatomic) NSString *mainTitle;
 @property(readonly, nonatomic) NSString *lyrics;
@@ -121,7 +125,7 @@ NSString* getLyricNow(MPAVItem* item, NSDictionary* metadata)
 				NSHTTPURLResponse *responseCode = nil;
 				NSMutableURLRequest *Request = [[NSMutableURLRequest alloc]	initWithURL:UrlString cachePolicy:NSURLRequestReloadIgnoringLocalAndRemoteCacheData timeoutInterval:15.0];
 				[Request setHTTPMethod:@"GET"];
-				[Request setValue:@"default" forHTTPHeaderField:@"Cookie"];
+				[Request setValue:@"default; AWSELB=unknown" forHTTPHeaderField:@"Cookie"];
 				[Request setValue:@"default" forHTTPHeaderField:@"x-mxm-endpoint"];
 				[Request setValue:@"Musixmatch/6.0.1 (iPhone; iOS 9.2.1; Scale/2.00)" forHTTPHeaderField:@"User-Agent"];
 				NSData *receivedData = [NSURLConnection sendSynchronousRequest:Request returningResponse:&responseCode error:&error];
@@ -391,7 +395,7 @@ static UIView* PAcoverArtView = nil;
 	%orig;
 	@try {
 		[self setUserInteractionEnabled:YES];
-		if(UIView* btView = [self viewWithTag:4832]) {
+		if(UIView* btView = [[self superview] viewWithTag:4832]) {
 			btView.frame = CGRectMake(0, 0, self.frame.size.width, self.frame.size.height);
 		} else {
 			UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -401,7 +405,6 @@ static UIView* PAcoverArtView = nil;
 			b.frame = CGRectMake(0, 0, self.frame.size.width, self.frame.size.height);
 		}
 		if(UIView* lyricView = [[self superview] viewWithTag:4564]) {
-			[lyricView setUserInteractionEnabled:YES];
 			lyricView.frame = self.frame;
 		}
 	} @catch (NSException * e) {
