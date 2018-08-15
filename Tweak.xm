@@ -9,8 +9,6 @@
 #import <MediaRemote.h>
 extern const char *__progname;
 
-#undef HBLogError
-#define HBLogError(...)
 #define NSLog(...)
 
 @interface MPAVItem : NSObject
@@ -30,9 +28,9 @@ static BOOL isIOS10 = NO;
 static UIView* coverTapView;
 static UITextView *liricTextField;
 
+static NSString* tmpMusiLyric;
 
-
-NSString* encodeBase64WithData(NSData* theData)
+static NSString* encodeBase64WithData(NSData* theData)
 {
 	@autoreleasepool {
 		const uint8_t* input = (const uint8_t*)[theData bytes];
@@ -56,10 +54,10 @@ NSString* encodeBase64WithData(NSData* theData)
 			output[theIndex + 2] = (i + 1) < length ? table[(value >> 6)  & 0x3F] : '=';
 			output[theIndex + 3] = (i + 2) < length ? table[(value >> 0)  & 0x3F] : '=';
 		}
-		return [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
+		return [[[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding] copy];
 	}
 }
-NSString* hmacSHA1BinBase64(NSString* data, NSString* key) 
+static NSString* hmacSHA1BinBase64(NSString* data, NSString* key) 
 {
 	@autoreleasepool {
 		const char *cKey  = [key cStringUsingEncoding:NSASCIIStringEncoding];
@@ -68,16 +66,16 @@ NSString* hmacSHA1BinBase64(NSString* data, NSString* key)
 		CCHmac(kCCHmacAlgSHA1, cKey, strlen(cKey), cData, strlen(cData), cHMAC);
 		NSData *HMAC = [[NSData alloc] initWithBytes:cHMAC length:sizeof(cHMAC)];
 		NSString *hash = encodeBase64WithData(HMAC);
-		return hash;
+		return [hash copy];
 	}
 }
-NSString* urlEncodeUsingEncoding(NSString* encoding)
+static NSString* urlEncodeUsingEncoding(NSString* encoding)
 {
-	static __strong NSString* kCodes = @"!*'\"();:@&=+$,/?%#[] ";
+	static __strong NSString* kCodes = [@"!*'\"();:@&=+$,/?%#[] " copy];
 	return (NSString*)CFURLCreateStringByAddingPercentEscapes(NULL, (CFStringRef)encoding, NULL, (CFStringRef)kCodes, CFStringConvertNSStringEncodingToEncoding(NSUTF8StringEncoding));
 }
 
-NSString* getLyricNow(MPAVItem* item, NSDictionary* metadata)
+static NSString* getLyricNow(MPAVItem* item, NSDictionary* metadata)
 {
 	@try {
 			NSString *artist = [NSString string];
@@ -100,12 +98,12 @@ NSString* getLyricNow(MPAVItem* item, NSDictionary* metadata)
 				duration = [[metadata objectForKey:@"durationInSeconds"]?[[metadata objectForKey:@"durationInSeconds"] stringValue]:duration copy];
 			}
 			
-			static __strong NSString* token = @"160203df69efabfaf0b50f2b7b82aaad0206ce701d1c55895ec22f";
-			static __strong NSString* sigFormat = @"&signature=%@&signature_protocol=sha1";
-			static __strong NSString* urlFormat = @"https://apic.musixmatch.com/ws/1.1/macro.subtitles.get?app_id=mac-ios-v2.0&usertoken=%@&q_duration=%@&tags=playing&q_album_artist=%@&q_track=%@&q_album=%@&page_size=1&subtitle_format=mxm&f_subtitle_length_max_deviation=1&user_language=pt&f_tracking_url=html&f_subtitle_length=%@&track_fields_set=ios_track_list&q_artist=%@&format=json";
+			static __strong NSString* token = [@"1806241a800384d1588f4bde531da16e19ac746268a4999ebae016" copy];
+			static __strong NSString* sigFormat = [@"&signature=%@&signature_protocol=sha1" copy];
+			static __strong NSString* urlFormat = [@"https://apic.musixmatch.com/ws/1.1/macro.subtitles.get?app_id=mac-ios-v2.0&usertoken=%@&q_duration=%@&tags=playing&q_album_artist=%@&q_track=%@&q_album=%@&page_size=1&subtitle_format=mxm&f_subtitle_length_max_deviation=1&user_language=pt&f_tracking_url=html&f_subtitle_length=%@&track_fields_set=ios_track_list&q_artist=%@&format=json" copy];
 			NSString* prepareString = [NSString stringWithFormat:urlFormat, token, duration, urlEncodeUsingEncoding(album_artist), urlEncodeUsingEncoding(track), urlEncodeUsingEncoding(album), duration, urlEncodeUsingEncoding(artist)];
 			
-			static __strong NSString* dirTmpFormat = @"/var/mobile/Media/MusiLyric/%@";
+			static __strong NSString* dirTmpFormat = [[tmpMusiLyric stringByAppendingString:@"%@"] copy];
 			NSString* pathTmpMusic = [[NSString stringWithFormat:dirTmpFormat, urlEncodeUsingEncoding(hmacSHA1BinBase64(prepareString, dirTmpFormat))] copy];
 			if(access(pathTmpMusic.UTF8String, F_OK)==0) {
 				NSString *lyricText = [NSString stringWithContentsOfFile:pathTmpMusic encoding:NSUTF8StringEncoding error:NULL];
@@ -131,7 +129,7 @@ NSString* getLyricNow(MPAVItem* item, NSDictionary* metadata)
 				NSData *receivedData = [NSURLConnection sendSynchronousRequest:Request returningResponse:&responseCode error:&error];
 				if(receivedData && !error) {
 					NSDictionary *JSON = [NSJSONSerialization JSONObjectWithData:receivedData?:[NSData data] options:NSJSONReadingMutableContainers error:nil];
-					static __strong NSDictionary* dice = [NSDictionary dictionary];
+					static __strong NSDictionary* dice = [[NSDictionary dictionary] copy];
 					retLyric = [[[[[[[[JSON?:dice objectForKey:@"message"]?:dice objectForKey:@"body"]?:dice objectForKey:@"macro_calls"]?:dice objectForKey:@"track.lyrics.get"]?:dice objectForKey:@"message"]?:dice objectForKey:@"body"]?:dice objectForKey:@"lyrics"]?:dice objectForKey:@"lyrics_body"];
 				}
 			}
@@ -299,8 +297,52 @@ static UIView* SPcoverArtView = nil;
 	if(gesture && ![gesture isKindOfClass:%c(MLTapGestureRecognizer)]) {
 		SPcoverArtView = [gesture view];
 	}
-	toggleLiricView(self, @selector(coverArtViewTapped:), SPcoverArtView, YES);
+	toggleLiricView(self, @selector(coverArtViewTapped:), SPcoverArtView, YES);	
 	%orig;
+}
+%end
+%end
+
+%group Tidal
+@interface WiMP0PlayerSceneClass : NSObject
+- (id)mediaItemImageView;
+@end
+%hook WiMP0PlayerSceneClass
+- (void)playbackChanged:(id)arg1
+{
+	%orig;
+	toggleLiricView(self, @selector(coverArtViewTapped:), [self mediaItemImageView], NO);
+}
+- (void)viewWillLayoutSubviews
+{
+	%orig;
+	@try {
+		coverTapView = [self mediaItemImageView];
+		if(coverTapView) {
+			BOOL showldAddGesture = YES;
+			for (UIGestureRecognizer *recognizer in coverTapView.gestureRecognizers) {
+				if(recognizer&&[recognizer isKindOfClass:%c(MLTapGestureRecognizer)]) {
+					showldAddGesture = NO;
+					continue;
+				}
+				[coverTapView removeGestureRecognizer:recognizer];
+			}
+			if(showldAddGesture) {
+				MLTapGestureRecognizer *singleFingerTapCover = [[MLTapGestureRecognizer alloc] initWithTarget:self action:@selector(coverArtViewTapped:)];
+				[coverTapView addGestureRecognizer:singleFingerTapCover];
+				[coverTapView setUserInteractionEnabled:YES];
+			}
+			if(UIView* lyricView = [[coverTapView superview] viewWithTag:4564]) {
+				lyricView.frame = coverTapView.frame;
+			}
+		}
+	} @catch (NSException * e) {
+	}
+}
+%new
+- (void)coverArtViewTapped:(UITapGestureRecognizer *)gesture
+{
+	toggleLiricView(self, @selector(coverArtViewTapped:), [self mediaItemImageView], YES);
 }
 %end
 %end
@@ -437,13 +479,18 @@ static void lockScreenState(CFNotificationCenterRef center, void *observer, CFSt
 
 %ctor
 {
+	tmpMusiLyric = [[NSString stringWithFormat:@"%@/MusiLyric/", NSTemporaryDirectory()] copy];
+	[[NSFileManager defaultManager] createDirectoryAtPath:tmpMusiLyric withIntermediateDirectories:NO attributes:nil error:nil];
 	isIOS10 = (kCFCoreFoundationVersionNumber >= 1348.00);
 	CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(), NULL, &changedPB, (CFStringRef)kMRMediaRemoteNowPlayingInfoDidChangeNotification, NULL, CFNotificationSuspensionBehaviorCoalesce);
-	if (strcmp(__progname, "Spotify") == 0) {
+	if (!strcmp(__progname, "Spotify")) {
+		[[NSUserDefaults standardUserDefaults] setObject:@NO forKey:@"spotilife-lyric"];
 		%init(Spotify);
-	} else if (strcmp(__progname, "Pandora") == 0) {
+	} else if (!strcmp(__progname, "TIDAL")) {
+		%init(Tidal, WiMP0PlayerSceneClass = objc_getClass("WiMP.PlayerScene"));
+	} else if (!strcmp(__progname, "Pandora")) {
 		%init(Pandora);
-	} else if (strcmp(__progname, "SpringBoard") == 0) {
+	} else if (!strcmp(__progname, "SpringBoard")) {
 		CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, &lockScreenState, CFSTR("com.apple.springboard.lockstate"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
 		if(isIOS10) {
 			CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(), NULL, &changedPB, CFSTR("ML3MusicLibraryNonContentsPropertiesDidChangeNotification"), NULL, CFNotificationSuspensionBehaviorCoalesce);
